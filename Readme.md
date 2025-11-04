@@ -159,9 +159,9 @@ For each variable $X_i$ with tentative parent set $pa(X_i)$:
 
 - Compute local linear approximation via first-order Taylor expansion at anchor point $x_0$ (coordinate-wise median of the standardized parents):
 
-  $$
-  x_{i,\mathrm{lin}} = \hat{p}(x_0) + \big(X_{pa(i)}^{\text{scaled}} - x_0\big)\nabla\hat{p}(x_0)
-  $$
+$$
+x_{i,\mathrm{lin}} = \hat{p}(x_0) + \big(X_{pa(i)}^{\text{scaled}} - x_0\big)\nabla\hat{p}(x_0)
+$$
 
   The gradient $\nabla\hat{p}(x_0)$ is estimated numerically (e.g., via finite differences).
 
@@ -180,7 +180,7 @@ For each variable $X_i$ with tentative parent set $pa(X_i)$:
 - Scale to match original variance:
 
   $$
-  x_{i,\mathrm{new}} = x_{i,\mathrm{lin}} + \epsilon_{\mathrm{ortho}} \cdot \frac{\sigma(\epsilon_{\mathrm{orig}})}{\sigma(\epsilon_{\mathrm{ortho}})}
+  x_{i,\text{new}} = x_{i,\text{lin}} + \epsilon_{\text{ortho}} \cdot \frac{\sigma(\epsilon_{\text{orig}})}{\sigma(\epsilon_{\text{ortho}})}
   $$
 
 ## Citation
