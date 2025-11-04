@@ -179,9 +179,9 @@ $$
 - Orthogonalize: $\epsilon_{\mathrm{ortho}} = \epsilon_{\mathrm{synth}} - QQ^{\top}\epsilon_{\mathrm{synth}}$
 - Scale to match original variance:
 
-  $$
-  x_{i,\text{new}} = x_{i,\text{lin}} + \epsilon_{\text{ortho}} \cdot \frac{\sigma(\epsilon_{\text{orig}})}{\sigma(\epsilon_{\text{ortho}})}
-  $$
+$$
+x_{i,\mathrm{new}} = x_{i,\mathrm{lin}} + \epsilon_{\mathrm{ortho}} \cdot \frac{\sigma(\epsilon_{\mathrm{orig}})}{\sigma(\epsilon_{\mathrm{ortho}})}
+$$
 
 ## Citation
 
