@@ -1,4 +1,10 @@
+---
+title: "CausalMorph: Preconditioning Data for Linear Non-Gaussian Acyclic Models"
+---
+
 # CausalMorph: Preconditioning Data for Linear Non-Gaussian Acyclic Models
+
+> **_This README uses mathjax for rendering equations. For best results, view on GitHub with math support, or paste into a markdown viewer with math support (e.g., Jupyter, Typora)._**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -130,42 +136,51 @@ For detailed file descriptions and usage information, see `Repository_Structure.
 
 ## Methodology
 
+> All equations below are rendered using MathJax. Inline math is written as `$...$`, and display math with `$$...$$`.
+
 ### Stage I: MDL-Guided Local Linearization
 
 For each variable $X_i$ with tentative parent set $pa(X_i)$:
 
 - Fit polynomial $\hat{p}(\cdot)$ to standardized parent data $X_{pa(i)}^{\text{scaled}}$
 - Select optimal degree $d^*$ using the Minimum Description Length (MDL) criterion:
+
   $$
-  MDL(d) = n \log(MSE_d + \epsilon_{log}) + \lambda k_d
+  \mathrm{MDL}(d) = n \log(MSE_d + \epsilon_{\log}) + \lambda k_d
   $$
+
   where:
+
     - $n$ = sample size  
     - $MSE_d$ = mean squared error for degree $d$  
     - $k_d$ = number of polynomial terms  
     - $\lambda$ = penalty parameter (e.g., $\lambda=2.0$)  
-    - $\epsilon_{log}$ = small constant (e.g., $10^{-10}$) for stability
+    - $\epsilon_{\log}$ = small constant (e.g., $10^{-10}$) for stability
+
 - Compute local linear approximation via first-order Taylor expansion at anchor point $x_0$ (coordinate-wise median of the standardized parents):
+
   $$
-  x_{i,lin} = \hat{p}(x_0) + (X_{pa(i)}^{\text{scaled}} - x_0)\nabla\hat{p}(x_0)
+  x_{i,\mathrm{lin}} = \hat{p}(x_0) + \big(X_{pa(i)}^{\text{scaled}} - x_0\big)\nabla\hat{p}(x_0)
   $$
+
   The gradient $\nabla\hat{p}(x_0)$ is estimated numerically (e.g., via finite differences).
 
 ### Stage II: Synthetic Non-Gaussian Residuals
 
-- Extract original residual: $\epsilon_{orig} = x_i - x_{i,lin}$
+- Extract original residual: $\epsilon_{\mathrm{orig}} = x_i - x_{i,\mathrm{lin}}$
 - Whiten residual and obtain coloring matrix $C$
 - Sample from non-Gaussian distributions (Laplace, Uniform, Exponential, Student’s $t$)
-- Recolor: $\epsilon_{synth} = C Z_{cand}$
+- Recolor: $\epsilon_{\mathrm{synth}} = C Z_{\mathrm{cand}}$
 - Select the candidate with the minimum p-value (most non-Gaussian) in a normality test
 
 ### Stage III: Orthogonalization and Variance Matching
 
 - Compute orthonormal basis $Q$ for the parent space
-- Orthogonalize: $\epsilon_{ortho} = \epsilon_{synth} - QQ^{\top}\epsilon_{synth}$
+- Orthogonalize: $\epsilon_{\mathrm{ortho}} = \epsilon_{\mathrm{synth}} - QQ^{\top}\epsilon_{\mathrm{synth}}$
 - Scale to match original variance:
+
   $$
-  x_{i,new} = x_{i,lin} + \epsilon_{ortho} \cdot \frac{\sigma(\epsilon_{orig})}{\sigma(\epsilon_{ortho})}
+  x_{i,\mathrm{new}} = x_{i,\mathrm{lin}} + \epsilon_{\mathrm{ortho}} \cdot \frac{\sigma(\epsilon_{\mathrm{orig}})}{\sigma(\epsilon_{\mathrm{ortho}})}
   $$
 
 ## Citation
