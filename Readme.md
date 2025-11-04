@@ -3,30 +3,30 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-Official implementation of **CausalMorph**, a data preconditioning algorithm that projects observational datasets toward the Linear Non-Gaussian Acyclic Model (LiNGAM) compatible regime.
+Official implementation of CausalMorph, a data preconditioning algorithm that projects observational datasets toward the Linear Non-Gaussian Acyclic Model (LiNGAM) compatible regime.
 
-**Paper**: CausalMorph: Preconditioning Data for Linear Non-Gaussian Acyclic Models
-**Authors**: Mario De Los Santos-Hernández, Samuel Montero-Hernández, Felipe Orihuela-Espina, L. Enrique Sucar
-**Journal**: Knowledge-Based Systems (Under Review)
-**Manuscript ID**: KNOSYS-D-25-17892
+**Paper**: CausalMorph: Preconditioning Data for Linear Non-Gaussian Acyclic Models  
+**Authors**: Mario De Los Santos-Hernández, Samuel Montero-Hernández, Felipe Orihuela-Espina, L. Enrique Sucar  
+**Journal**: Knowledge-Based Systems (Under Review)  
+**Manuscript ID**: KNOSYS-D-25-17892  
 
 ## Overview
 
-The Linear Non-Gaussian Acyclic Model (LiNGAM) family provides a unique advantage in causal discovery: unlike most methods, LiNGAM can identify a single, fully directed causal graph from purely observational data. However, LiNGAM's strict assumptions of **linearity** and **non-Gaussian noise** are often violated in practice, limiting its applicability.
+The Linear Non-Gaussian Acyclic Model (LiNGAM) family provides a unique advantage in causal discovery: unlike most methods, LiNGAM can identify a single, fully directed causal graph from purely observational data rather than an equivalence class of possible structures. However, LiNGAM's strict assumptions of **linearity** and **non-Gaussian noise** are often violated in practice, limiting its applicability.
 
-**CausalMorph** addresses this challenge through a three-stage data preconditioning process:
+CausalMorph addresses this challenge through a three-stage data preconditioning process:
 
-1. **Stage I: Local Linearization** - MDL-guided polynomial approximation with Taylor expansion
-2. **Stage II: Non-Gaussian Synthesis** - Whitening-recoloring with explicit non-Gaussian residuals
-3. **Stage III: Orthogonalization** - Enforcement of statistical uncorrelatedness between noise and parents
+- **Stage I: Local Linearization** — MDL-guided polynomial approximation with Taylor expansion
+- **Stage II: Non-Gaussian Synthesis** — Whitening-recoloring with explicit non-Gaussian residuals
+- **Stage III: Orthogonalization** — Enforcement of statistical uncorrelatedness between noise and parents
 
 ### Key Results
 
 Across 17,280 unique synthetic configurations (34,560 total runs), CausalMorph achieves:
 
-- **37.7% relative reduction** in Structural Hamming Distance (SHD) for DirectLiNGAM (p < 0.001)
-- **16.4% relative reduction** in SHD for ICALiNGAM (p < 0.001)
-- **Regularization effect**: Improved performance even when LiNGAM conditions are met
+- 37.7% relative reduction in Structural Hamming Distance (SHD) for DirectLiNGAM ($p < 0.001$)
+- 16.4% relative reduction in SHD for ICALiNGAM ($p < 0.001$)
+- Regularization effect: Improved performance even when LiNGAM conditions are met
 
 ## Installation
 
@@ -82,7 +82,7 @@ model_final.fit(data_transformed)
 adjacency_matrix = model_final.adjacency_matrix_
 ```
 
-For more detailed examples, see [basic_usage.py](basic_usage.py) or [Quickstart.md](Quickstart.md).
+For more detailed examples, see `basic_usage.py` or `Quickstart.md`.
 
 ## Repository Structure
 
@@ -126,40 +126,47 @@ causalmorph/                       # Main Python package (root)
 └── .gitignore                     # Git ignore patterns
 ```
 
-For detailed file descriptions and usage information, see [Repository_Structure.md](Repository_Structure.md).
+For detailed file descriptions and usage information, see `Repository_Structure.md`.
 
 ## Methodology
 
 ### Stage I: MDL-Guided Local Linearization
 
-For each variable Xi with tentative parent set pa(Xi):
+For each variable $X_i$ with tentative parent set $pa(X_i)$:
 
-1. Fit polynomial p(·) to standardized parent data
-2. Select optimal degree d* using MDL criterion:
-   ```
-   MDL(d) = n log(MSE_d + ε_log) + λk_d
-   ```
-3. Compute local linear approximation via Taylor expansion:
-   ```
-   x_i,lin = p̂(x_0) + (X_pa - x_0)∇p̂(x_0)
-   ```
+- Fit polynomial $\hat{p}(\cdot)$ to standardized parent data $X_{pa(i)}^{\text{scaled}}$
+- Select optimal degree $d^*$ using the Minimum Description Length (MDL) criterion:
+  $$
+  MDL(d) = n \log(MSE_d + \epsilon_{log}) + \lambda k_d
+  $$
+  where:
+    - $n$ = sample size  
+    - $MSE_d$ = mean squared error for degree $d$  
+    - $k_d$ = number of polynomial terms  
+    - $\lambda$ = penalty parameter (e.g., $\lambda=2.0$)  
+    - $\epsilon_{log}$ = small constant (e.g., $10^{-10}$) for stability
+- Compute local linear approximation via first-order Taylor expansion at anchor point $x_0$ (coordinate-wise median of the standardized parents):
+  $$
+  x_{i,lin} = \hat{p}(x_0) + (X_{pa(i)}^{\text{scaled}} - x_0)\nabla\hat{p}(x_0)
+  $$
+  The gradient $\nabla\hat{p}(x_0)$ is estimated numerically (e.g., via finite differences).
 
 ### Stage II: Synthetic Non-Gaussian Residuals
 
-1. Extract original residual: ε_orig = x_i - x_i,lin
-2. Whiten residual and obtain coloring matrix C
-3. Sample from non-Gaussian distributions (Laplace, Uniform, Exponential, Student's t)
-4. Recolor: ε_synth = C·z_cand
-5. Select distribution with minimum p-value on normality test
+- Extract original residual: $\epsilon_{orig} = x_i - x_{i,lin}$
+- Whiten residual and obtain coloring matrix $C$
+- Sample from non-Gaussian distributions (Laplace, Uniform, Exponential, Student’s $t$)
+- Recolor: $\epsilon_{synth} = C Z_{cand}$
+- Select the candidate with the minimum p-value (most non-Gaussian) in a normality test
 
 ### Stage III: Orthogonalization and Variance Matching
 
-1. Compute orthonormal basis Q for parent space
-2. Orthogonalize: ε_ortho = ε_synth - QQ^T ε_synth
-3. Scale to match original variance:
-   ```
-   x_i,new = x_i,lin + ε_ortho · (σ(ε_orig) / σ(ε_ortho))
-   ```
+- Compute orthonormal basis $Q$ for the parent space
+- Orthogonalize: $\epsilon_{ortho} = \epsilon_{synth} - QQ^{\top}\epsilon_{synth}$
+- Scale to match original variance:
+  $$
+  x_{i,new} = x_{i,lin} + \epsilon_{ortho} \cdot \frac{\sigma(\epsilon_{orig})}{\sigma(\epsilon_{ortho})}
+  $$
 
 ## Citation
 
@@ -177,14 +184,14 @@ If you use CausalMorph in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
-- **Mario De Los Santos-Hernández**: madlsh3517@gmail.com
-- **Project Repository**: https://github.com/MarSH-Up/CausalMorph
+- Mario De Los Santos-Hernández: madlsh3517@gmail.com
+- Project Repository: https://github.com/MarSH-Up/CausalMorph
 
 ## Acknowledgments
 
 - Instituto Nacional de Astrofísica, Óptica y Electrónica (INAOE), Puebla, México
-- School of Computer Science, University of Birmingham, United Kingdom 
+- School of Computer Science, University of Birmingham, United Kingdom
