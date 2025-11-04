@@ -6,6 +6,7 @@ title: "CausalMorph: Preconditioning Data for Linear Non-Gaussian Acyclic Models
 
 > **_This README uses mathjax for rendering equations. For best results, view on GitHub with math support, or paste into a markdown viewer with math support (e.g., Jupyter, Typora)._**
 
+[![Hugging Face Dataset](https://img.shields.io/badge/HuggingFace-Dataset-orange)](https://huggingface.co/datasets/Mdls35/causal_synthetic_scenarios)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
@@ -33,6 +34,22 @@ Across 17,280 unique synthetic configurations (34,560 total runs), CausalMorph a
 - 37.7% relative reduction in Structural Hamming Distance (SHD) for DirectLiNGAM ($p < 0.001$)
 - 16.4% relative reduction in SHD for ICALiNGAM ($p < 0.001$)
 - Regularization effect: Improved performance even when LiNGAM conditions are met
+
+## Dataset
+
+We provide and recommend the use of a comprehensive set of synthetic data scenarios for causal discovery benchmarks. You can access pretrained synthetic datasets used in our experiments via the following Hugging Face dataset:
+
+- [Synthetic Causal Scenarios @ Hugging Face](https://huggingface.co/datasets/Mdls35/causal_synthetic_scenarios)
+
+To use this dataset in Python, you can do:
+```python
+from datasets import load_dataset
+
+# Load all synthetic scenarios
+ds = load_dataset("Mdls35/causal_synthetic_scenarios", split="train")
+print(ds)
+```
+This resource includes realistic and diverse linear/nonlinear, (non-)Gaussian, and (non-)acyclic ground-truth scenarios.
 
 ## Installation
 
@@ -64,7 +81,7 @@ import pandas as pd
 from causalmorph import causalMorph
 from lingam import DirectLiNGAM
 
-# Load your observational data
+# Load your observational data (you can also use the Hugging Face dataset above)
 data = pd.read_csv('your_data.csv')
 
 # Step 1: Get initial causal order estimate
