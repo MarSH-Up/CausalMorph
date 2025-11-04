@@ -54,94 +54,79 @@ pip install -e ".[dev]"
 ## Quick Start
 
 ```python
-import numpy as np
-from causalmorph import CausalMorph
+import pandas as pd
+from causalmorph import causalMorph
 from lingam import DirectLiNGAM
 
 # Load your observational data
-X = np.loadtxt('data/raw/your_data.csv', delimiter=',')
+data = pd.read_csv('your_data.csv')
 
-# Initialize CausalMorph with a tentative causal order
-# (can be from domain knowledge, heuristics, or iterative refinement)
-tentative_order = [0, 1, 2, 3, 4]  # Variable indices in causal order
+# Step 1: Get initial causal order estimate
+# (can be from domain knowledge, heuristics, or initial LiNGAM run)
+model_initial = DirectLiNGAM()
+model_initial.fit(data)
+tentative_order = model_initial.causal_order_
 
-# Apply CausalMorph preconditioning
-morph = CausalMorph()
-X_transformed = morph.fit_transform(X, causal_order=tentative_order)
+# Step 2: Apply CausalMorph transformation
+data_transformed = causalMorph(
+    data,
+    causal_order=tentative_order,
+    verbose=True
+)
 
-# Run LiNGAM on the transformed data
-model = DirectLiNGAM()
-model.fit(X_transformed)
+# Step 3: Run LiNGAM on the transformed data
+model_final = DirectLiNGAM()
+model_final.fit(data_transformed)
 
-# Get the adjacency matrix
-adjacency_matrix = model.adjacency_matrix_
+# Get the improved adjacency matrix
+adjacency_matrix = model_final.adjacency_matrix_
 ```
+
+For more detailed examples, see [basic_usage.py](basic_usage.py) or [Quickstart.md](Quickstart.md).
 
 ## Repository Structure
 
 ```
-CausalMorph/
-├── causalmorph/              # Core implementation
-│   ├── core/                 # Main algorithm components
-│   │   ├── __init__.py
-│   │   ├── linearization.py  # Stage I: MDL-guided linearization
-│   │   ├── synthesis.py      # Stage II: Non-Gaussian synthesis
-│   │   └── orthogonalization.py  # Stage III: Orthogonalization
-│   ├── utils/                # Utility functions
-│   │   ├── __init__.py
-│   │   ├── metrics.py        # SHD, F1, precision, recall
-│   │   ├── visualization.py  # Plotting utilities
-│   │   └── data_utils.py     # Data loading/preprocessing
-│   └── tests/                # Unit tests
+causalmorph/                       # Main Python package (root)
+├── core/                          # Core algorithm implementation
+│   ├── __init__.py
+│   └── causalmorph_algorithm.py   # Complete CausalMorph algorithm
+│                                  # (Stage I, II, III)
 │
-├── experiments/              # Experimental code
-│   ├── synthetic_data/       # Data generation scripts
-│   │   ├── generate_dags.py
-│   │   ├── generate_sem.py
-│   │   └── config.yaml
-│   ├── benchmarks/           # Benchmark experiments
-│   │   ├── run_baseline.py
-│   │   ├── run_causalmorph.py
-│   │   └── compare_methods.py
-│   └── analysis/             # Result analysis
-│       ├── statistical_tests.py
-│       └── visualize_results.py
+├── utils/                         # Utility functions
+│   ├── __init__.py
+│   ├── metrics.py                 # SHD, F1, Precision, Recall, MCC
+│   └── non_gaussian.py            # Non-Gaussianity testing
 │
-├── data/                     # Data directory
-│   ├── raw/                  # Original datasets
-│   ├── processed/            # Transformed datasets
-│   └── results/              # Experimental results
+├── data_generation/               # Synthetic data generation
+│   ├── __init__.py
+│   └── synthetic_scenarios.py     # Scenario generators
 │
-├── docs/                     # Documentation
-│   ├── paper/                # Paper-related materials
-│   │   └── KNOSYS-D-25-17892.pdf
-│   ├── tutorials/            # Usage tutorials
-│   └── api/                  # API documentation
+├── tests/                         # Unit tests
+│   └── __init__.py
 │
-├── notebooks/                # Jupyter notebooks
-│   ├── 01_introduction.ipynb
-│   ├── 02_synthetic_experiments.ipynb
-│   ├── 03_real_world_examples.ipynb
-│   └── 04_ablation_studies.ipynb
+├── experiments/                   # Experimental code
+│   ├── benchmarks/                # Benchmark experiments
+│   │   └── run_synthetic_experiments.py
+│   ├── synthetic_data/            # Data generation scripts
+│   └── analysis/                  # Result analysis scripts
 │
-├── examples/                 # Example scripts
-│   ├── basic_usage.py
-│   ├── iterative_refinement.py
-│   └── real_world_application.py
+├── examples/                      # Usage examples
+│   └── README.md
 │
-├── config/                   # Configuration files
-│   ├── experiment_config.yaml
-│   └── model_config.yaml
-│
-├── scripts/                  # Utility scripts
-│   ├── setup_environment.sh
-│   └── run_full_experiments.sh
-│
-├── requirements.txt          # Python dependencies
-├── setup.py                  # Package setup
-├── LICENSE                   # MIT License
-└── README.md                 # This file
+├── __init__.py                    # Package initialization
+├── basic_usage.py                 # Basic usage demonstration
+├── setup.py                       # Package installation
+├── requirements.txt               # Dependencies
+├── LICENSE                        # MIT License
+├── Readme.md                      # This file
+├── Install.md                     # Installation guide
+├── Quickstart.md                  # Quick start guide
+├── Repository_Structure.md        # Detailed structure documentation
+└── .gitignore                     # Git ignore patterns
 ```
+
+For detailed file descriptions and usage information, see [Repository_Structure.md](Repository_Structure.md).
 
 ## Methodology
 
