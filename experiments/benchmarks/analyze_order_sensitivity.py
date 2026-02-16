@@ -75,8 +75,7 @@ def significance_stars(p):
 # ---------------------------------------------------------------------------
 # Core analysis per sweep
 # ---------------------------------------------------------------------------
-def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None,
-                   real_x_col=None):
+def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None):
     """
     Analyse one sweep dimension (order error).
 
@@ -87,8 +86,7 @@ def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None,
     fixed_col : str – column held at 0     (e.g. "order_error_rate")
     label : str     – human-readable name  (e.g. "Order Error Rate")
     ax_shd : matplotlib Axes for the SHD plot
-    df_real : DataFrame or None – real pipeline results to overlay
-    real_x_col : str or None – column in df_real to use as x-coordinate
+    df_real : DataFrame or None – real pipeline results (plotted as horizontal line)
 
     Returns
     -------
@@ -139,21 +137,47 @@ def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None,
 
     summary = pd.DataFrame(rows)
 
-    # ---- Plot: SHD ----
-    ax_shd.errorbar(
+    # ---- Plot: SHD (3 independent lines) ----
+    # Line 1 (Blue): Original DirectLiNGAM on raw data
+    ax_shd.plot(
         summary[sweep_col], summary["shd_orig_mean"],
-        fmt="o-", color=COLOR_ORIG, label="Original (DirectLiNGAM)", capsize=3,
+        "o-", color=COLOR_ORIG, label="DirectLiNGAM (baseline)", markersize=6,
     )
-    ax_shd.errorbar(
+    # Line 2 (Orange): Controlled — ground-truth order/adj perturbed at known rate
+    ax_shd.plot(
         summary[sweep_col], summary["shd_trans_mean"],
-        fmt="s-", color=COLOR_MORPH, label="CausalMorph + DirectLiNGAM", capsize=3,
+        "s-", color=COLOR_MORPH, label="CausalMorph + DirectLiNGAM (controlled)", markersize=6,
     )
-    ax_shd.fill_between(
-        summary[sweep_col],
-        summary["shd_trans_mean"] - (summary["shd_imp_mean"] - summary["shd_imp_ci_lo"]),
-        summary["shd_trans_mean"] + (summary["shd_imp_ci_hi"] - summary["shd_imp_mean"]),
-        alpha=0.15, color=COLOR_MORPH,
-    )
+    # Line 3 (Green): Real pipeline — LiNGAM estimates fed to CausalMorph,
+    #   x-position = measured error rate of LiNGAM's output vs ground truth
+    if df_real is not None and len(df_real) > 0:
+        # Use measured error rate column matching the sweep dimension
+        real_rate_col = {"adj_error_rate": "measured_adj_error_rate",
+                         "order_error_rate": "measured_order_error_rate"}.get(
+            sweep_col, sweep_col)
+        # Fall back to sweep_col if measured column doesn't exist (new CSV format)
+        if real_rate_col not in df_real.columns:
+            real_rate_col = sweep_col
+
+        # Bin measured rates to nearest controlled error rate for alignment
+        bin_edges = (
+            [-np.inf]
+            + [(a + b) / 2 for a, b in zip(rates[:-1], rates[1:])]
+            + [np.inf]
+        )
+        df_rp = df_real.copy()
+        df_rp["rate_bin"] = pd.cut(
+            df_rp[real_rate_col], bins=bin_edges, labels=rates,
+            include_lowest=True,
+        )
+        rp_agg = (df_rp.groupby("rate_bin", observed=True)["shd_transformed"]
+                   .mean().dropna())
+        if len(rp_agg) > 0:
+            ax_shd.plot(
+                rp_agg.index.astype(float), rp_agg.values,
+                "^--", color=COLOR_IMPROVE, markersize=7, lw=2,
+                label="CausalMorph + LiNGAM (real pipeline)",
+            )
     # Stars
     for _, row in summary.iterrows():
         stars = significance_stars(row["wilcoxon_p_shd"])
@@ -161,25 +185,6 @@ def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None,
             y_pos = max(row["shd_orig_mean"], row["shd_trans_mean"]) + 0.005
             ax_shd.text(row[sweep_col], y_pos, stars, ha="center", fontsize=9,
                         color=COLOR_IMPROVE)
-
-    # Overlay real pipeline marker
-    if df_real is not None and real_x_col is not None and len(df_real) > 0:
-        real_x = df_real[real_x_col].mean()
-        real_shd_orig = df_real["shd_original"].mean()
-        real_shd_trans = df_real["shd_transformed"].mean()
-        ax_shd.scatter([real_x], [real_shd_orig], marker="D", s=120, c=COLOR_ORIG,
-                       edgecolors="black", zorder=5, linewidths=1.5)
-        ax_shd.scatter([real_x], [real_shd_trans], marker="D", s=120, c=COLOR_MORPH,
-                       edgecolors="black", zorder=5, linewidths=1.5,
-                       label="Real Pipeline")
-        # Vertical line at real pipeline position
-        ax_shd.axvline(real_x, ls=":", color="black", alpha=0.4, lw=1)
-        ax_shd.annotate(f"Real Pipeline\n({real_x:.2f})",
-                        xy=(real_x, real_shd_trans), xytext=(15, -25),
-                        textcoords="offset points", fontsize=8,
-                        arrowprops=dict(arrowstyle="->", color="black", alpha=0.6),
-                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow",
-                                  ec="gray", alpha=0.8))
 
     ax_shd.set_xlabel(label)
     ax_shd.set_ylabel("Normalized SHD (lower is better)")
@@ -496,7 +501,6 @@ def main(csv_path, out_dir):
     sum_adj = analyze_sweep(
         df_controlled, "adj_error_rate", "order_error_rate", "Order Error Rate", ax,
         df_real=df_real if len(df_real) > 0 else None,
-        real_x_col="measured_adj_error_rate",
     )
     print(sum_adj.to_string(index=False, float_format="%.4f"))
 

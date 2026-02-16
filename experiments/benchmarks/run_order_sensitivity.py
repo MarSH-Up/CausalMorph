@@ -5,6 +5,9 @@ Now: Run all scenario variants from @experiments/SyntheticCausalScenarios_mixed_
 
 Usage:
     python experiments/benchmarks/run_order_sensitivity.py <output_dir> <num_workers>
+
+Set SAMPLE_MODE = True at the top of this file for a quick sanity check
+(25 random scenarios, 1 repetition, no file moves).
 """
 
 import os
@@ -179,15 +182,15 @@ def compute_adj_error_rate(adj_true, adj_estimated):
     Compute the error rate of an estimated adjacency matrix vs the true one.
 
     Returns dict with:
-      - edge_error_rate: (FP + FN) / num_true_edges
+      - edge_error_rate: FN / num_true_edges (fraction of true edges missed,
+        bounded [0,1], comparable to controlled adj_error_rate)
       - f1_input: F1 score of estimated vs true
       - precision_input: precision of estimated vs true
       - recall_input: recall of estimated vs true
     """
     metrics = mycomparegraphs(adj_estimated, adj_true)
     num_true_edges = int(np.sum(adj_true != 0))
-    fp_fn = metrics["FP"] + metrics["FN"]
-    edge_error_rate = fp_fn / num_true_edges if num_true_edges > 0 else 0.0
+    edge_error_rate = metrics["FN"] / num_true_edges if num_true_edges > 0 else 0.0
     return {
         "edge_error_rate": edge_error_rate,
         "f1_input": metrics["F1"],
@@ -348,6 +351,10 @@ def process_scenario_experiments(config):
     estimated_adj = (np.abs(pred_orig) > 0.05).astype(np.int8)
     order_error = compute_order_error(true_order, estimated_order)
     adj_error = compute_adj_error_rate(adj_true, estimated_adj)
+    print(adj_error)
+    adj_input, adj_meta = perturb_adjacency_matrix(
+        adj_true, adj_error["edge_error_rate"], seed=random_seed + 1000
+    )
 
     for random_seed in real_pipeline_seeds:
         try:
@@ -355,7 +362,7 @@ def process_scenario_experiments(config):
                 data,
                 causal_order=estimated_order,
                 adjacency_matrix=pd.DataFrame(
-                    estimated_adj, columns=data.columns, index=data.columns
+                    adj_input, columns=data.columns, index=data.columns
                 ),
                 verbose=False,
             )
@@ -372,7 +379,9 @@ def process_scenario_experiments(config):
 
             results.append(_build_result(
                 "real_pipeline", name, p, num_edges_true, density,
-                np.nan, np.nan, random_seed,
+                order_error["kendall_displacement"],
+                adj_error["edge_error_rate"],
+                random_seed,
                 shd_orig_value, metrics_orig, shd_trans_value, metrics_trans,
                 pred_orig, pred_trans,
                 {"positions_permuted": order_error["positions_changed"],
@@ -396,6 +405,9 @@ def process_scenario_experiments(config):
 ERROR_RATES = [0.0, 0.10, 0.25, 0.50, 0.75, 1.0]
 N_REPETITIONS = 5
 BATCH_SIZE = 50
+SAMPLE_MODE = True
+SAMPLE_N_SCENARIOS = 20
+SAMPLE_N_REPETITIONS = 1
 
 
 def move_scenarios_to_processed(names, processed_dir):
@@ -416,12 +428,23 @@ def main(output_dir=".", num_workers=None):
     print("=" * 80)
 
     all_names = list_scenario_names(_SCENARIOS_DIR)
+
+    if SAMPLE_MODE:
+        n_reps = SAMPLE_N_REPETITIONS
+        all_names = [n for n in all_names if "_p-5_" in n or "_p-25_" in n]
+        rng = np.random.RandomState(42)
+        all_names = list(rng.choice(all_names, size=min(SAMPLE_N_SCENARIOS, len(all_names)), replace=False))
+        print(f"\n** SAMPLE MODE: {len(all_names)} random scenarios (p=5 or p=25), "
+              f"{n_reps} repetition(s) **")
+    else:
+        n_reps = N_REPETITIONS
+
     total_scenarios = len(all_names)
     n_configs = 2 * len(ERROR_RATES) - 1  # two sweeps sharing the (0,0) baseline
-    total_controlled = total_scenarios * n_configs * N_REPETITIONS
-    total_real_pipeline = total_scenarios * N_REPETITIONS
+    total_controlled = total_scenarios * n_configs * n_reps
+    total_real_pipeline = total_scenarios * n_reps
     total_experiments = total_controlled + total_real_pipeline
-    exps_per_scenario = n_configs * N_REPETITIONS + N_REPETITIONS
+    exps_per_scenario = n_configs * n_reps + n_reps
     print(f"\nTotal scenarios: {total_scenarios}")
     print(f"Controlled experiments: {total_controlled}")
     print(f"Real pipeline experiments: {total_real_pipeline}")
@@ -441,7 +464,8 @@ def main(output_dir=".", num_workers=None):
     print(f"  Workers: {num_workers}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"sensitivity_results_{timestamp}.csv")
+    tag = "sample_" if SAMPLE_MODE else ""
+    output_file = os.path.join(output_dir, f"sensitivity_results_{tag}{timestamp}.csv")
     processed_dir = os.path.join(_SCENARIOS_DIR, "processed")
     os.makedirs(processed_dir, exist_ok=True)
 
@@ -470,9 +494,9 @@ def main(output_dir=".", num_workers=None):
             controlled_configs = [
                 (order_rate, adj_rate, seed + rep)
                 for order_rate, adj_rate in config_pairs
-                for rep in range(N_REPETITIONS)
+                for rep in range(n_reps)
             ]
-            real_pipeline_seeds = [seed + rep for rep in range(N_REPETITIONS)]
+            real_pipeline_seeds = [seed + rep for rep in range(n_reps)]
             scenario_configs.append({
                 "data_dir": _SCENARIOS_DIR,
                 "scenario_name": name,
@@ -503,15 +527,19 @@ def main(output_dir=".", num_workers=None):
             header_written = True
             total_saved += len(results)
 
-        # Move processed files and free memory
-        total_moved += move_scenarios_to_processed(batch_names, processed_dir)
+        # Move processed files only in full mode
+        if not SAMPLE_MODE:
+            total_moved += move_scenarios_to_processed(batch_names, processed_dir)
         del results
-        print(f"  Saved {total_saved} results, moved {total_moved} files so far")
+        print(f"  Saved {total_saved} results so far")
 
     print(f"\nExperiments completed!")
+    if SAMPLE_MODE:
+        print(f"** SAMPLE MODE — files were NOT moved to processed/ **")
     print(f"Results saved to: {output_file}")
     print(f"Total successful experiments: {total_saved} / {total_experiments}")
-    print(f"Total files moved to processed/: {total_moved}")
+    if not SAMPLE_MODE:
+        print(f"Total files moved to processed/: {total_moved}")
 
     if total_saved > 0:
         df_results = pd.read_csv(output_file)
