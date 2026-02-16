@@ -16,10 +16,11 @@ from lingam import DirectLiNGAM
 
 from utils.metrics import mycomparegraphs, normalized_shd
 from data_generation.synthetic_scenarios import causal_graph_synthetic_scenarios
-from core.causalmorph_algorithm import causalMorph
+from core.causalmorph_algorithm import causalMorph, plot_bijective_demonstration
+from utils.statistical_perservation import plot_statistical_preservation
 
 
-def run_causalmorph_example(p=10, nsamples=1000, seed=42, verbose=True, debug=False):
+def run_causalmorph_example(p=10, nsamples=1000, seed=42, verbose=True, debug=False, show_bijective=True):
     """
     Run a complete CausalMorph experiment on synthetic nonlinear data.
 
@@ -29,6 +30,7 @@ def run_causalmorph_example(p=10, nsamples=1000, seed=42, verbose=True, debug=Fa
         seed: Random seed for reproducibility
         verbose: Whether to print detailed output
         debug: Enable debug mode (generates and saves diagnostic plots)
+        show_bijective: Generate bijective transformation demonstration plots
 
     Returns:
         dict: Results comparing original vs transformed data
@@ -96,12 +98,31 @@ def run_causalmorph_example(p=10, nsamples=1000, seed=42, verbose=True, debug=Fa
         verbose=verbose,
         validate=False,
         debug=debug,
+        return_details=show_bijective or debug,
     )
 
-    # Handle tuple return when debug=True
+    # Handle tuple return when return_details=True
     if isinstance(result, tuple):
         transformed, details = result
         print(f"\nTransformation details collected for {len(details)} variables")
+
+        # Generate bijective demonstration plots
+        if show_bijective:
+            print("\n" + "-" * 40)
+            print("Generating bijective transformation plots...")
+            print("-" * 40)
+            for var_name, var_details in details.items():
+                if var_details['residual_before'] is not None and len(var_details['residual_before']) > 0:
+                    plot_bijective_demonstration(
+                        var_details['residual_before'],
+                        var_name=var_name,
+                        n_samples=nsamples
+                    )
+                    # Also generate statistical preservation plot
+                    plot_statistical_preservation(
+                        var_details['residual_before'],
+                        var_name=var_name
+                    )
     else:
         transformed = result
 
@@ -170,7 +191,8 @@ if __name__ == "__main__":
         nsamples=1000,
         seed=random_seed,
         verbose=False,
-        debug=False  # Set to True to enable debug mode and generate diagnostic plots
+        debug=False,  # Set to True to enable debug mode and generate diagnostic plots
+        show_bijective=True  # Generate bijective transformation demonstration plots
     )
 
     print("\n" + "=" * 80)

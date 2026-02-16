@@ -163,3 +163,5 @@ data/results/*
 
 # HuggingFace cache
 .cache/
+
+experiments/SyntheticCausalScenarios_mixed_v2_5
