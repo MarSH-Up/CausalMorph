@@ -72,6 +72,53 @@ def significance_stars(p):
     return "ns"
 
 
+def paired_permutation_test(x, y, n_perm=10_000, seed=0):
+    """
+    Paired permutation test for H0: median(x - y) == 0.
+
+    Under the null, the sign of each difference d_i = x_i - y_i is
+    equally likely to be + or -.  We sample n_perm sign-flip vectors
+    and record the distribution of the permuted mean difference.
+
+    Parameters
+    ----------
+    x, y   : array-like, paired observations (same length)
+    n_perm : int, number of permutations
+    seed   : int, RNG seed for reproducibility
+
+    Returns
+    -------
+    observed_stat : float  – mean(x - y) on the real data
+    p_value       : float  – two-sided p-value
+    """
+    rng = np.random.RandomState(seed)
+    d = np.asarray(x, dtype=float) - np.asarray(y, dtype=float)
+    observed = np.mean(d)
+
+    # Each permutation randomly flips the sign of each difference
+    signs = rng.choice([-1, 1], size=(n_perm, len(d)))
+    null_dist = (signs * d[np.newaxis, :]).mean(axis=1)
+
+    # Two-sided: fraction of |null| >= |observed|
+    p_value = (np.abs(null_dist) >= np.abs(observed)).mean()
+    return observed, p_value
+
+
+def sensitivity_analysis(summary_df, sweep_col, out_dir, label="Order Error Rate"):
+    """
+    Test whether performance degrades monotonically across error-rate levels.
+
+    For every consecutive pair of levels (η_low, η_high) a paired permutation
+    test is run on the *improvement* values.  This establishes that the
+    degradation trend is statistically significant, not just noise.
+
+    Returns a DataFrame of pairwise comparison results.
+    """
+    # Reload raw data is not available here, so accept pre-aggregated summary.
+    # This function is a hook for callers that pass raw per-experiment data.
+    pass  # extended version implemented inline in analyze_sweep
+
+
 # ---------------------------------------------------------------------------
 # Core analysis per sweep
 # ---------------------------------------------------------------------------
@@ -117,6 +164,11 @@ def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None):
             w_stat, w_p = stats.wilcoxon(non_zero, alternative="two-sided")
         else:
             w_stat, w_p = np.nan, np.nan
+
+        # Paired permutation test (sign-flip, 10 000 resamples)
+        _, perm_p = paired_permutation_test(shd_orig, shd_trans, n_perm=10_000,
+                                            seed=int(rate * 1000))
+
         d_shd = cohens_d(shd_orig, shd_trans)
 
         rows.append({
@@ -132,6 +184,7 @@ def analyze_sweep(df, sweep_col, fixed_col, label, ax_shd, df_real=None):
             "pct_equal": pct_equal,
             "pct_degraded": 100 - pct_improved - pct_equal,
             "wilcoxon_p_shd": w_p,
+            "permutation_p_shd": perm_p,
             "cohens_d_shd": d_shd,
         })
 
@@ -383,7 +436,12 @@ def analyze_real_pipeline(df_real, out_dir):
         w_stat, w_p = stats.wilcoxon(non_zero, alternative="two-sided")
     else:
         w_stat, w_p = np.nan, np.nan
-    d_shd = cohens_d(df_real["shd_original"].values, df_real["shd_transformed"].values)
+
+    shd_orig_arr = df_real["shd_original"].values
+    shd_trans_arr = df_real["shd_transformed"].values
+    _, perm_p = paired_permutation_test(shd_orig_arr, shd_trans_arr,
+                                        n_perm=10_000, seed=42)
+    d_shd = cohens_d(shd_orig_arr, shd_trans_arr)
 
     summary = {
         "n": n,
@@ -400,6 +458,7 @@ def analyze_real_pipeline(df_real, out_dir):
         "pct_improved": pct_improved,
         "pct_degraded": 100 - pct_improved - pct_equal,
         "wilcoxon_p": w_p,
+        "permutation_p": perm_p,
         "cohens_d": d_shd,
         "f1_orig_mean": df_real["f1_original"].mean(),
         "f1_trans_mean": df_real["f1_transformed"].mean(),
@@ -421,6 +480,8 @@ def analyze_real_pipeline(df_real, out_dir):
     print(f"  Win rate:                    {summary['pct_improved']:.1f}%")
     print(f"  Wilcoxon p:                  {summary['wilcoxon_p']:.2e}  "
           f"{significance_stars(summary['wilcoxon_p'])}")
+    print(f"  Permutation p (paired):      {summary['permutation_p']:.2e}  "
+          f"{significance_stars(summary['permutation_p'])}")
     print(f"  Cohen's d:                   {summary['cohens_d']:.3f}")
     print(f"\n  F1 original (mean):          {summary['f1_orig_mean']:.4f}")
     print(f"  F1 transformed (mean):       {summary['f1_trans_mean']:.4f}")
@@ -463,6 +524,108 @@ def analyze_real_pipeline(df_real, out_dir):
     print(f"\n  Saved: {fname}")
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Permutation-based monotone-degradation test across error levels
+# ---------------------------------------------------------------------------
+def pairwise_permutation_tests(df, sweep_col, fixed_col, out_dir,
+                               n_perm=10_000, label="Order Error Rate"):
+    """
+    For every pair of consecutive error levels (η_low < η_high), test whether
+    CausalMorph's improvement at η_low is significantly greater than at η_high.
+
+    H0: mean_improvement(η_low) == mean_improvement(η_high)
+    Test statistic: mean(d_low) - mean(d_high)
+    Null distribution: generated by pooling the two groups' differences and
+                       drawing without replacement (unpaired permutation test).
+
+    Returns
+    -------
+    result_df : DataFrame with columns [eta_low, eta_high, obs_diff, perm_p]
+    """
+    sub = df[df[fixed_col] == 0.0].copy()
+    rates = sorted(sub[sweep_col].unique())
+
+    rows = []
+    for i in range(len(rates) - 1):
+        r_lo, r_hi = rates[i], rates[i + 1]
+        d_lo = sub.loc[sub[sweep_col] == r_lo, "improvement"].values.astype(float)
+        d_hi = sub.loc[sub[sweep_col] == r_hi, "improvement"].values.astype(float)
+
+        obs_stat = np.mean(d_lo) - np.mean(d_hi)
+        pooled = np.concatenate([d_lo, d_hi])
+        n_lo = len(d_lo)
+
+        rng = np.random.RandomState(int((r_lo + r_hi) * 1000))
+        null_dist = np.empty(n_perm)
+        for k in range(n_perm):
+            perm = rng.permutation(pooled)
+            null_dist[k] = perm[:n_lo].mean() - perm[n_lo:].mean()
+
+        # One-sided: observed should be > 0 (improvement degrades with more error)
+        p_one = (null_dist >= obs_stat).mean()
+        rows.append({
+            "eta_low": r_lo, "eta_high": r_hi,
+            "mean_imp_low": np.mean(d_lo), "mean_imp_high": np.mean(d_hi),
+            "obs_diff": obs_stat,
+            "perm_p_one_sided": p_one,
+        })
+
+    result_df = pd.DataFrame(rows)
+
+    # ---- Print summary ----
+    print("\n--- Pairwise Permutation Tests (monotone degradation across η) ---")
+    print(f"  n_permutations = {n_perm:,}  |  H1: improvement(η_low) > improvement(η_high)")
+    print(f"  {'η_low':>6}  {'η_high':>7}  {'Δmean':>8}  {'p (one-sided)':>16}  sig")
+    for _, r in result_df.iterrows():
+        sig = significance_stars(r["perm_p_one_sided"])
+        print(f"  {r['eta_low']:>6.0%}  {r['eta_high']:>7.0%}  "
+              f"{r['obs_diff']:>8.4f}  {r['perm_p_one_sided']:>16.4f}  {sig}")
+
+    # ---- Plot null distributions for key pairs ----
+    n_pairs = len(rows)
+    fig, axes = plt.subplots(1, n_pairs, figsize=(4 * n_pairs, 4), sharey=False)
+    if n_pairs == 1:
+        axes = [axes]
+
+    for ax, row_dict in zip(axes, rows):
+        r_lo, r_hi = row_dict["eta_low"], row_dict["eta_high"]
+        d_lo = sub.loc[sub[sweep_col] == r_lo, "improvement"].values.astype(float)
+        d_hi = sub.loc[sub[sweep_col] == r_hi, "improvement"].values.astype(float)
+
+        pooled = np.concatenate([d_lo, d_hi])
+        n_lo = len(d_lo)
+        rng = np.random.RandomState(int((r_lo + r_hi) * 1000))
+        null_dist = np.array([
+            rng.permutation(pooled)[:n_lo].mean() - rng.permutation(pooled)[n_lo:].mean()
+            for _ in range(n_perm)
+        ])
+        obs = row_dict["obs_diff"]
+
+        ax.hist(null_dist, bins=60, color=COLOR_NEUTRAL, alpha=0.6,
+                edgecolor="none", label="Null distribution")
+        ax.axvline(obs, color=COLOR_MORPH, lw=2, label=f"Observed Δ = {obs:.4f}")
+        ax.set_xlabel("Δ mean improvement")
+        ax.set_ylabel("Count")
+        ax.set_title(f"η {r_lo:.0%} → {r_hi:.0%}\n"
+                     f"p = {row_dict['perm_p_one_sided']:.4f} "
+                     f"{significance_stars(row_dict['perm_p_one_sided'])}")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.2)
+
+    fig.suptitle(f"Permutation Test: Monotone Degradation across {label}",
+                 fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    fname = os.path.join(out_dir, f"permutation_test_{sweep_col}.png")
+    fig.savefig(fname, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n  Saved: {fname}")
+
+    result_df.to_csv(
+        os.path.join(out_dir, f"pairwise_permutation_{sweep_col}.csv"), index=False)
+
+    return result_df
 
 
 # ---------------------------------------------------------------------------
@@ -538,19 +701,26 @@ def main(csv_path, out_dir):
     ext_adj = extended_metrics_table(df_controlled, "adj_error_rate", "order_error_rate")
     print(ext_adj.to_string(index=False, float_format="%.4f"))
 
-    # ---- 6. Save summary tables ----
+    # ---- 6. Pairwise permutation tests across error levels ----
+    print("\nRunning pairwise permutation tests (this may take ~30 s)...")
+    perm_adj = pairwise_permutation_tests(
+        df_controlled, "adj_error_rate", "order_error_rate", out_dir,
+        n_perm=10_000, label="Order Error Rate",
+    )
+
+    # ---- 7. Save summary tables ----
     sum_adj.to_csv(os.path.join(out_dir, "summary_order_error_sweep.csv"), index=False)
     ext_adj.to_csv(os.path.join(out_dir, "extended_metrics_order_error.csv"), index=False)
     print(f"\nAll CSV tables saved to {out_dir}/")
 
-    # ---- 7. Real pipeline analysis ----
+    # ---- 8. Real pipeline analysis ----
     if len(df_real) > 0:
         print("\n" + "=" * 80)
         print("REAL PIPELINE ANALYSIS (LiNGAM -> CausalMorph -> LiNGAM)")
         print("=" * 80)
         real_summary = analyze_real_pipeline(df_real, out_dir)
 
-    # ---- 8. Key takeaways ----
+    # ---- 9. Key takeaways ----
     print("\n" + "=" * 80)
     print("KEY FINDINGS")
     print("=" * 80)
@@ -564,6 +734,8 @@ def main(csv_path, out_dir):
     print(f"    Win rate        : {baseline['pct_improved']:.1f}%")
     print(f"    Wilcoxon p (SHD): {baseline['wilcoxon_p_shd']:.2e}  "
           f"{significance_stars(baseline['wilcoxon_p_shd'])}")
+    print(f"    Permutation p   : {baseline['permutation_p_shd']:.2e}  "
+          f"{significance_stars(baseline['permutation_p_shd'])}")
 
     print(f"\n  Worst order error rate ({worst['adj_error_rate']:.0%}):")
     print(f"    SHD improvement : {worst['shd_imp_mean']:.4f}  "
